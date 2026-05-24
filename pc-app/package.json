@@ -3,17 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "axios": "^1.4.0",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
+    "qrcode.react": "^3.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
-    "axios": "^1.4.0",
     "socket.io-client": "^4.5.4",
-    "qrcode.react": "^3.1.0",
-    "jszip": "^3.10.1"
+    "tesseract.js": "^7.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "set \"NODE_OPTIONS=--openssl-legacy-provider\" && react-scripts build"
   },
   "browserslist": {
     "production": [

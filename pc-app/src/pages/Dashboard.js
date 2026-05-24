@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import useSocket from '../hooks/useSocket';
+import Tesseract from 'tesseract.js';
+import { jsPDF } from 'jspdf';
+import JSZip from 'jszip';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
 
@@ -264,7 +267,7 @@ export default function Dashboard() {
     const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
     if (!targets.length) return;
     try {
-      const JSZip = (await import('jszip')).default;
+      // const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       targets.forEach((img, i) => {
         zip.file(`image-${i + 1}.jpg`, img.split(',')[1], { base64: true });
@@ -316,7 +319,7 @@ export default function Dashboard() {
     setOcrLoading(true);
     setOcrText('');
     try {
-      const Tesseract = (await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js'));
+      // const Tesseract = (await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js'));
       let allText = '';
       for (let i = 0; i < targets.length; i++) {
         const { data: { text } } = await Tesseract.recognize(targets[i], 'eng');
@@ -349,7 +352,7 @@ export default function Dashboard() {
     const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
     if (!targets.length) return;
     try {
-      const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+      // const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const W = 210, H = 297;
 
