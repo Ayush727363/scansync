@@ -35,7 +35,6 @@ const S = {
   },
   row: { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' },
   h2: { fontSize: 18, fontWeight: 600, color: '#1a1a2e', marginBottom: 16 },
-  h3: { fontSize: 15, fontWeight: 600, color: '#444', marginBottom: 10 },
   label: { fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   sessionId: {
     fontFamily: 'monospace',
@@ -124,6 +123,17 @@ const S = {
     animation: 'fadeIn 0.3s'
   }),
   imgThumb: { width: '100%', aspectRatio: '3/4', objectFit: 'cover', display: 'block' },
+  vidThumb: { 
+    width: '100%', 
+    aspectRatio: '3/4', 
+    objectFit: 'cover', 
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#1a1a2e',
+    fontSize: 48,
+    color: '#fff'
+  },
   imgOverlay: {
     position: 'absolute', inset: 0,
     background: 'rgba(0,0,0,0.55)',
@@ -136,6 +146,12 @@ const S = {
     borderRadius: 6, fontSize: 11, fontWeight: 700,
     padding: '2px 7px'
   },
+  mediaType: {
+    position: 'absolute', top: 6, right: 6,
+    background: 'rgba(37,99,235,0.9)', color: '#fff',
+    borderRadius: 6, fontSize: 11, fontWeight: 700,
+    padding: '2px 7px'
+  },
   imgBtn: (bg) => ({
     background: bg, border: 'none', borderRadius: 6,
     color: '#fff', padding: '6px 10px', fontSize: 12,
@@ -145,16 +161,6 @@ const S = {
     textAlign: 'center', padding: '60px 20px',
     color: '#aab', fontSize: 15
   },
-  progressBox: {
-    background: '#f0f9ff', border: '2px solid #0ea5e9',
-    borderRadius: 10, padding: 16, marginTop: 16,
-    color: '#1a1a2e'
-  },
-  progressBar: (pct) => ({
-    height: 8, borderRadius: 4,
-    background: `linear-gradient(90deg, #0ea5e9 ${pct}%, #e0e5eb ${pct}%)`,
-    transition: 'background 0.2s'
-  }),
   badge: (color) => ({
     background: color + '22', color, borderRadius: 6,
     padding: '3px 10px', fontSize: 12, fontWeight: 600
@@ -168,7 +174,7 @@ const S = {
   }
 };
 
-// ─── TINY HELPERS ─────────────────────────────────────────────────
+// ─── HELPERS ─────────────────────────────────────────────────
 
 function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob);
@@ -186,18 +192,65 @@ function b64toBlob(b64, mime) {
   return new Blob([ab], { type: mime });
 }
 
-// ─── MAIN COMPONENT ──────────────────────────────────────────────
+// ─── COPY TO CLIPBOARD - UNIVERSAL FIX ──────────────────────
+
+async function copyToClipboard(text) {
+  try {
+    // Try modern API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    console.log('Clipboard API failed:', err);
+  }
+
+  // Fallback method
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const success = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return success;
+  } catch (err) {
+    console.log('Fallback copy failed:', err);
+    return false;
+  }
+}
+
+async function copyImageToClipboard(b64Data) {
+  try {
+    const blob = b64toBlob(b64Data, 'image/jpeg');
+    
+    // Try modern API
+    if (navigator.clipboard && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+      return true;
+    }
+  } catch (err) {
+    console.log('Image clipboard failed:', err);
+  }
+
+  // For images, offer download as fallback
+  return false;
+}
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────
 
 export default function Dashboard() {
   const { connected, emit, on, off } = useSocket();
   const [sessionId, setSessionId] = useState(null);
   const [mobileUrl, setMobileUrl] = useState('');
-  const [images, setImages] = useState([]);
+  const [media, setMedia] = useState([]); // {data, type: 'image'|'video'}
   const [selected, setSelected] = useState(new Set());
   const [status, setStatus] = useState('idle');
   const [clientCount, setClientCount] = useState(0);
   const [notification, setNotification] = useState(null);
-  const [receivingProgress, setReceivingProgress] = useState({ received: 0, expectedTotal: 0 });
   const [isReceiving, setIsReceiving] = useState(false);
 
   const notify = useCallback((msg, color = '#2563eb') => {
@@ -205,29 +258,21 @@ export default function Dashboard() {
     setTimeout(() => setNotification(null), 3000);
   }, []);
 
-  // Listen for images (NOW ONE-BY-ONE)
+  // Listen for media
   useEffect(() => {
     on('images-received', (data) => {
-      setImages(data.images || []);
+      setMedia(data.images || []);
       setIsReceiving(true);
-      
-      // Show progress: if mobile just sent 1 image
       if (data.images && data.images.length > 0) {
-        setReceivingProgress({
-          received: data.images.length,
-          expectedTotal: data.images.length // Will be updated
-        });
-        notify(`📥 Received ${data.images.length} image${data.images.length !== 1 ? 's' : ''}!`, '#16a34a');
+        notify(`📥 Received ${data.images.length} item${data.images.length !== 1 ? 's' : ''}!`, '#16a34a');
       }
     });
 
     on('client-count', (data) => setClientCount(data.count));
-    
     on('session-expired', () => {
       notify('Session expired. Create a new one.', '#dc2626');
-      setSessionId(null); setImages([]); setStatus('idle');
+      setSessionId(null); setMedia([]); setStatus('idle');
     });
-
     on('error', (err) => notify(err.message, '#dc2626'));
 
     return () => {
@@ -244,10 +289,9 @@ export default function Dashboard() {
       const { sessionId: sid, mobileUrl: url } = res.data;
       setSessionId(sid);
       setMobileUrl(url);
-      setImages([]); setSelected(new Set());
+      setMedia([]); setSelected(new Set());
       emit('join-session', sid);
       setStatus('waiting');
-      setReceivingProgress({ received: 0, expectedTotal: 0 });
       setIsReceiving(false);
     } catch (e) {
       notify('Failed to create session. Is the backend running?', '#dc2626');
@@ -257,77 +301,84 @@ export default function Dashboard() {
 
   // End session
   const endSession = async () => {
-    if (!window.confirm('End session? All images will be cleared.')) return;
+    if (!window.confirm('End session? All media will be cleared.')) return;
     await axios.delete(`${BACKEND_URL}/api/sessions/${sessionId}`).catch(() => {});
-    setSessionId(null); setImages([]); setSelected(new Set());
+    setSessionId(null); setMedia([]); setSelected(new Set());
     setStatus('idle'); setClientCount(0);
-    setReceivingProgress({ received: 0, expectedTotal: 0 });
   };
 
-  // Selection helpers
+  // Selection
   const toggleSelect = (i) => {
     const s = new Set(selected);
     s.has(i) ? s.delete(i) : s.add(i);
     setSelected(s);
   };
-  const selectAll = () => setSelected(images.length === selected.size ? new Set() : new Set(images.map((_, i) => i)));
+  const selectAll = () => setSelected(media.length === selected.size ? new Set() : new Set(media.map((_, i) => i)));
 
-  // Download single
-  const downloadOne = (img, i) => {
+  // Download
+  const downloadOne = (mediaData, i) => {
     const a = document.createElement('a');
-    a.href = img; a.download = `scansync-${sessionId}-${i + 1}.jpg`;
+    a.href = mediaData; 
+    a.download = `scansync-${sessionId}-${i + 1}.jpg`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  // Download all as ZIP
   const downloadAllZip = async () => {
-    const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
+    const targets = selected.size > 0 ? [...selected].map(i => media[i]) : media;
     if (!targets.length) return;
     try {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
-      targets.forEach((img, i) => {
-        zip.file(`image-${i + 1}.jpg`, img.split(',')[1], { base64: true });
+      targets.forEach((m, i) => {
+        zip.file(`media-${i + 1}.jpg`, m.split(',')[1], { base64: true });
       });
       const blob = await zip.generateAsync({ type: 'blob' });
       downloadBlob(blob, `scansync-${sessionId}.zip`);
-      notify(`✅ Downloaded ${targets.length} images as ZIP`);
+      notify(`✅ Downloaded ${targets.length} items as ZIP`);
     } catch (e) {
-      targets.forEach((img, i) => setTimeout(() => downloadOne(img, i), i * 200));
-      notify(`✅ Downloading ${targets.length} images`);
+      targets.forEach((m, i) => setTimeout(() => downloadOne(m, i), i * 200));
+      notify(`✅ Downloading ${targets.length} items`);
     }
   };
 
-  // Delete selected
+  // Delete
   const deleteSelected = () => {
-    const keep = images.filter((_, i) => !selected.has(i));
-    setImages(keep);
+    const keep = media.filter((_, i) => !selected.has(i));
+    setMedia(keep);
     emit('clear-images', sessionId);
     if (keep.length > 0) emit('upload-images', { sessionId, images: keep });
     setSelected(new Set());
-    notify('Deleted selected images');
+    notify('Deleted selected items');
   };
 
-  // Clear all
   const clearAll = () => {
-    if (!window.confirm('Delete all images from session?')) return;
-    setImages([]); setSelected(new Set());
+    if (!window.confirm('Delete all media from session?')) return;
+    setMedia([]); setSelected(new Set());
     emit('clear-images', sessionId);
-    notify('All images cleared');
+    notify('All media cleared');
   };
 
-  // Copy image to clipboard
-  const copyImageToClipboard = async (img) => {
-    try {
-      const blob = b64toBlob(img, 'image/jpeg');
-      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+  // Copy image
+  const handleCopyImage = async (mediaData, i) => {
+    const success = await copyImageToClipboard(mediaData);
+    if (success) {
       notify('📋 Image copied to clipboard!');
-    } catch {
-      notify('Clipboard not supported in this browser', '#f59e0b');
+    } else {
+      notify('Clipboard not supported. Try downloading instead.', '#f59e0b');
     }
   };
 
-  // ─── RENDER ─────────────────────────────────────────────────────
+  // Copy URL
+  const handleCopyUrl = async () => {
+    const success = await copyToClipboard(mobileUrl);
+    if (success) {
+      notify('📋 Link copied to clipboard!');
+    } else {
+      notify('Failed to copy. Try again.', '#f59e0b');
+    }
+  };
+
+  // ─── RENDER ─────────────────────────────────────────────────
 
   return (
     <div style={S.page}>
@@ -345,16 +396,8 @@ export default function Dashboard() {
             <span style={{ ...S.dot, background: connected ? '#16a34a' : '#dc2626' }} />
             {connected ? 'Connected' : 'Disconnected'}
           </span>
-          {sessionId && (
-            <span style={S.badge('#2563eb')}>
-              Session: {sessionId}
-            </span>
-          )}
-          {clientCount > 1 && (
-            <span style={S.badge('#16a34a')}>
-              📱 Mobile connected
-            </span>
-          )}
+          {sessionId && <span style={S.badge('#2563eb')}>Session: {sessionId}</span>}
+          {clientCount > 1 && <span style={S.badge('#16a34a')}>📱 Mobile connected</span>}
         </div>
       </nav>
 
@@ -366,7 +409,7 @@ export default function Dashboard() {
               ScanSync – PC Dashboard
             </h1>
             <p style={{ color: '#888', marginBottom: 32, fontSize: 15 }}>
-              Create a session, scan the QR code on your phone, and start transferring images instantly.
+              Create a session, scan the QR code on your phone, and transfer images & videos instantly.
             </p>
             <button style={S.bigCreateBtn} onClick={createSession} disabled={!connected}>
               {!connected ? '⏳ Connecting...' : '✨ Create New Session'}
@@ -383,15 +426,10 @@ export default function Dashboard() {
                 <div>
                   <p style={S.label}>Scan with phone camera</p>
                   <div style={S.qrWrap}>
-                    <QRCodeSVG
-                      value={mobileUrl}
-                      size={200}
-                      level="H"
-                      includeMargin={false}
-                    />
+                    <QRCodeSVG value={mobileUrl} size={200} level="H" includeMargin={false} />
                   </div>
                 </div>
-                {/* Session details */}
+                {/* Details */}
                 <div style={{ flex: 1, minWidth: 260 }}>
                   <p style={S.label}>Session ID</p>
                   <div style={{ ...S.sessionId, marginBottom: 20 }}>{sessionId}</div>
@@ -399,10 +437,7 @@ export default function Dashboard() {
                   <p style={S.label}>Mobile Link</p>
                   <div style={{ ...S.row, marginBottom: 20 }}>
                     <div style={S.urlBox}>{mobileUrl}</div>
-                    <button style={S.btn()} onClick={() => {
-                      navigator.clipboard.writeText(mobileUrl);
-                      notify('Link copied!');
-                    }}>Copy</button>
+                    <button style={S.btn()} onClick={handleCopyUrl}>Copy</button>
                   </div>
 
                   <div style={S.row}>
@@ -415,39 +450,30 @@ export default function Dashboard() {
                   </div>
 
                   <p style={{ marginTop: 16, fontSize: 13, color: '#aab' }}>
-                    Session expires in 60 minutes. Images are deleted automatically.
+                    Session expires in 60 minutes.
                   </p>
                 </div>
               </div>
 
-              {/* Receiving Progress */}
-              {isReceiving && images.length > 0 && (
-                <div style={S.progressBox}>
-                  <h3 style={{ ...S.h3, color: '#0ea5e9', marginTop: 0 }}>
-                    📥 Receiving images in real-time
+              {isReceiving && media.length > 0 && (
+                <div style={{ background: '#f0f9ff', border: '2px solid #0ea5e9', borderRadius: 10, padding: 16, marginTop: 16, color: '#0ea5e9' }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0, marginBottom: 10 }}>
+                    📥 Receiving media in real-time
                   </h3>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>
-                      Received: {images.length} image{images.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div style={S.progressBar(100)}>
-                    <div style={{ height: '100%', background: '#10b981', width: '100%' }} />
-                  </div>
-                  <p style={{ marginTop: 10, fontSize: 12, color: '#0ea5e9', fontWeight: 600 }}>
-                    ✓ Images are being added as they arrive from mobile!
+                  <p style={{ fontSize: 13, margin: 0 }}>
+                    Received: {media.length} item{media.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Images section */}
+            {/* Media section */}
             <div style={S.card}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
                 <h2 style={{ ...S.h2, margin: 0 }}>
-                  Received Images
+                  Media
                   <span style={{ ...S.badge('#2563eb'), marginLeft: 10, fontSize: 13 }}>
-                    {images.length}
+                    {media.length}
                   </span>
                   {selected.size > 0 && (
                     <span style={{ ...S.badge('#f59e0b'), marginLeft: 8, fontSize: 13 }}>
@@ -456,10 +482,10 @@ export default function Dashboard() {
                   )}
                 </h2>
 
-                {images.length > 0 && (
+                {media.length > 0 && (
                   <div style={S.row}>
                     <button style={S.btnOutline} onClick={selectAll}>
-                      {selected.size === images.length ? 'Deselect All' : 'Select All'}
+                      {selected.size === media.length ? 'Deselect All' : 'Select All'}
                     </button>
                     <button style={S.btn()} onClick={downloadAllZip}>
                       ⬇ {selected.size > 0 ? `Download ${selected.size}` : 'Download All'}
@@ -476,22 +502,17 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {images.length === 0 ? (
+              {media.length === 0 ? (
                 <div style={S.emptyState}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📱</div>
-                  <p>Waiting for images from mobile…</p>
+                  <p>Waiting for media from mobile…</p>
                   <p style={{ fontSize: 13, marginTop: 8, color: '#ccc' }}>
-                    Scan the QR code and start capturing photos on your phone
+                    Scan the QR code and start capturing photos or videos
                   </p>
-                  {isReceiving && (
-                    <p style={{ fontSize: 13, marginTop: 8, color: '#10b981', fontWeight: 600 }}>
-                      🟢 Mobile is connected and ready to send!
-                    </p>
-                  )}
                 </div>
               ) : (
                 <div style={S.grid}>
-                  {images.map((img, i) => (
+                  {media.map((m, i) => (
                     <div
                       key={i}
                       style={S.imgCard(selected.has(i))}
@@ -499,31 +520,37 @@ export default function Dashboard() {
                       onMouseEnter={e => e.currentTarget.querySelector('.overlay').style.opacity = 1}
                       onMouseLeave={e => e.currentTarget.querySelector('.overlay').style.opacity = 0}
                     >
-                      <img src={img} alt={`Image ${i + 1}`} style={S.imgThumb} />
+                      {m.type === 'video' ? (
+                        <div style={S.vidThumb}>🎥</div>
+                      ) : (
+                        <img src={m} alt={`Media ${i + 1}`} style={S.imgThumb} />
+                      )}
                       <div className="overlay" style={S.imgOverlay}>
                         <button
                           style={S.imgBtn('#2563eb')}
-                          onClick={e => { e.stopPropagation(); downloadOne(img, i); }}
+                          onClick={e => { e.stopPropagation(); downloadOne(m, i); }}
                           title="Download"
                         >⬇</button>
-                        <button
-                          style={S.imgBtn('#059669')}
-                          onClick={e => { e.stopPropagation(); copyImageToClipboard(img); }}
-                          title="Copy to clipboard"
-                        >📋</button>
+                        {m.type !== 'video' && (
+                          <button
+                            style={S.imgBtn('#059669')}
+                            onClick={e => { e.stopPropagation(); handleCopyImage(m, i); }}
+                            title="Copy to clipboard"
+                          >📋</button>
+                        )}
                         <button
                           style={S.imgBtn('#dc2626')}
                           onClick={e => {
                             e.stopPropagation();
-                            const keep = images.filter((_, idx) => idx !== i);
-                            setImages(keep);
+                            const keep = media.filter((_, idx) => idx !== i);
+                            setMedia(keep);
                             emit('clear-images', sessionId);
-                            if (keep.length) emit('upload-images', { sessionId, images: keep });
                           }}
                           title="Delete"
                         >✕</button>
                       </div>
                       <div style={S.imgNum}>{i + 1}</div>
+                      <div style={S.mediaType}>{m.type === 'video' ? '🎥' : '📸'}</div>
                       {selected.has(i) && (
                         <div style={{
                           position: 'absolute', top: 6, right: 6,
