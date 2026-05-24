@@ -2,9 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import useSocket from '../hooks/useSocket';
-import Tesseract from 'tesseract.js';
-import { jsPDF } from 'jspdf';
-import JSZip from 'jszip';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
 
@@ -123,7 +120,8 @@ const S = {
     border: selected ? '3px solid #2563eb' : '3px solid transparent',
     boxShadow: selected ? '0 0 0 1px #2563eb' : '0 2px 8px rgba(0,0,0,0.1)',
     transition: 'border 0.1s, box-shadow 0.1s',
-    background: '#e8ecf0'
+    background: '#e8ecf0',
+    animation: 'fadeIn 0.3s'
   }),
   imgThumb: { width: '100%', aspectRatio: '3/4', objectFit: 'cover', display: 'block' },
   imgOverlay: {
@@ -147,22 +145,27 @@ const S = {
     textAlign: 'center', padding: '60px 20px',
     color: '#aab', fontSize: 15
   },
+  progressBox: {
+    background: '#f0f9ff', border: '2px solid #0ea5e9',
+    borderRadius: 10, padding: 16, marginTop: 16,
+    color: '#1a1a2e'
+  },
   progressBar: (pct) => ({
-    height: 4, borderRadius: 4,
-    background: `linear-gradient(90deg, #2563eb ${pct}%, #e0e5eb ${pct}%)`,
+    height: 8, borderRadius: 4,
+    background: `linear-gradient(90deg, #0ea5e9 ${pct}%, #e0e5eb ${pct}%)`,
     transition: 'background 0.2s'
   }),
-  ocrBox: {
-    background: '#f5f7fa', border: '1px solid #e0e5eb',
-    borderRadius: 10, padding: 16, marginTop: 16,
-    fontFamily: 'monospace', fontSize: 13, lineHeight: 1.7,
-    whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto',
-    color: '#333'
-  },
   badge: (color) => ({
     background: color + '22', color, borderRadius: 6,
     padding: '3px 10px', fontSize: 12, fontWeight: 600
-  })
+  }),
+  notification: {
+    position: 'fixed', bottom: 20, right: 20, zIndex: 9999,
+    background: '#10b981', color: '#fff',
+    borderRadius: 10, padding: '12px 20px', fontSize: 14,
+    fontWeight: 600, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+    animation: 'slideUp 0.3s'
+  }
 };
 
 // ─── TINY HELPERS ─────────────────────────────────────────────────
@@ -191,31 +194,42 @@ export default function Dashboard() {
   const [mobileUrl, setMobileUrl] = useState('');
   const [images, setImages] = useState([]);
   const [selected, setSelected] = useState(new Set());
-  const [status, setStatus] = useState('idle'); // idle | creating | waiting | ready
-  const [ocrText, setOcrText] = useState('');
-  const [ocrLoading, setOcrLoading] = useState(false);
+  const [status, setStatus] = useState('idle');
   const [clientCount, setClientCount] = useState(0);
   const [notification, setNotification] = useState(null);
-  const imgRefs = useRef({});
+  const [receivingProgress, setReceivingProgress] = useState({ received: 0, expectedTotal: 0 });
+  const [isReceiving, setIsReceiving] = useState(false);
 
-  // Notification helper
   const notify = useCallback((msg, color = '#2563eb') => {
     setNotification({ msg, color });
     setTimeout(() => setNotification(null), 3000);
   }, []);
 
-  // Listen for incoming images from backend
+  // Listen for images (NOW ONE-BY-ONE)
   useEffect(() => {
     on('images-received', (data) => {
       setImages(data.images || []);
-      if (data.count > 0) notify(`📥 ${data.count} image(s) received!`, '#16a34a');
+      setIsReceiving(true);
+      
+      // Show progress: if mobile just sent 1 image
+      if (data.images && data.images.length > 0) {
+        setReceivingProgress({
+          received: data.images.length,
+          expectedTotal: data.images.length // Will be updated
+        });
+        notify(`📥 Received ${data.images.length} image${data.images.length !== 1 ? 's' : ''}!`, '#16a34a');
+      }
     });
+
     on('client-count', (data) => setClientCount(data.count));
+    
     on('session-expired', () => {
       notify('Session expired. Create a new one.', '#dc2626');
       setSessionId(null); setImages([]); setStatus('idle');
     });
+
     on('error', (err) => notify(err.message, '#dc2626'));
+
     return () => {
       off('images-received'); off('client-count');
       off('session-expired'); off('error');
@@ -230,9 +244,11 @@ export default function Dashboard() {
       const { sessionId: sid, mobileUrl: url } = res.data;
       setSessionId(sid);
       setMobileUrl(url);
-      setImages([]); setSelected(new Set()); setOcrText('');
+      setImages([]); setSelected(new Set());
       emit('join-session', sid);
       setStatus('waiting');
+      setReceivingProgress({ received: 0, expectedTotal: 0 });
+      setIsReceiving(false);
     } catch (e) {
       notify('Failed to create session. Is the backend running?', '#dc2626');
       setStatus('idle');
@@ -244,7 +260,8 @@ export default function Dashboard() {
     if (!window.confirm('End session? All images will be cleared.')) return;
     await axios.delete(`${BACKEND_URL}/api/sessions/${sessionId}`).catch(() => {});
     setSessionId(null); setImages([]); setSelected(new Set());
-    setOcrText(''); setStatus('idle'); setClientCount(0);
+    setStatus('idle'); setClientCount(0);
+    setReceivingProgress({ received: 0, expectedTotal: 0 });
   };
 
   // Selection helpers
@@ -262,12 +279,12 @@ export default function Dashboard() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  // Download all as ZIP using JSZip
+  // Download all as ZIP
   const downloadAllZip = async () => {
     const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
     if (!targets.length) return;
     try {
-      // const JSZip = (await import('jszip')).default;
+      const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       targets.forEach((img, i) => {
         zip.file(`image-${i + 1}.jpg`, img.split(',')[1], { base64: true });
@@ -276,7 +293,6 @@ export default function Dashboard() {
       downloadBlob(blob, `scansync-${sessionId}.zip`);
       notify(`✅ Downloaded ${targets.length} images as ZIP`);
     } catch (e) {
-      // Fallback: download individually
       targets.forEach((img, i) => setTimeout(() => downloadOne(img, i), i * 200));
       notify(`✅ Downloading ${targets.length} images`);
     }
@@ -287,7 +303,6 @@ export default function Dashboard() {
     const keep = images.filter((_, i) => !selected.has(i));
     setImages(keep);
     emit('clear-images', sessionId);
-    // Re-upload remaining
     if (keep.length > 0) emit('upload-images', { sessionId, images: keep });
     setSelected(new Set());
     notify('Deleted selected images');
@@ -296,7 +311,7 @@ export default function Dashboard() {
   // Clear all
   const clearAll = () => {
     if (!window.confirm('Delete all images from session?')) return;
-    setImages([]); setSelected(new Set()); setOcrText('');
+    setImages([]); setSelected(new Set());
     emit('clear-images', sessionId);
     notify('All images cleared');
   };
@@ -312,80 +327,12 @@ export default function Dashboard() {
     }
   };
 
-  // OCR using Tesseract.js (client-side, no API key needed)
-  const runOCR = async () => {
-    const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
-    if (!targets.length) return;
-    setOcrLoading(true);
-    setOcrText('');
-    try {
-      // const Tesseract = (await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js'));
-      let allText = '';
-      for (let i = 0; i < targets.length; i++) {
-        const { data: { text } } = await Tesseract.recognize(targets[i], 'eng');
-        allText += `--- Image ${i + 1} ---\n${text.trim()}\n\n`;
-      }
-      setOcrText(allText.trim());
-      notify(`✅ OCR done on ${targets.length} image(s)`);
-    } catch (e) {
-      console.error(e);
-      notify('OCR failed. Check console.', '#dc2626');
-    }
-    setOcrLoading(false);
-  };
-
-  // Copy OCR text
-  const copyOCRText = () => {
-    navigator.clipboard.writeText(ocrText)
-      .then(() => notify('📋 Text copied to clipboard!'))
-      .catch(() => notify('Clipboard unavailable', '#f59e0b'));
-  };
-
-  // Save OCR as .txt
-  const downloadOCRText = () => {
-    const blob = new Blob([ocrText], { type: 'text/plain' });
-    downloadBlob(blob, `scansync-ocr-${sessionId}.txt`);
-  };
-
-  // Create PDF from images
-  const createPDF = async () => {
-    const targets = selected.size > 0 ? [...selected].map(i => images[i]) : images;
-    if (!targets.length) return;
-    try {
-      // const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const W = 210, H = 297;
-
-      for (let i = 0; i < targets.length; i++) {
-        if (i > 0) pdf.addPage();
-        const img = new Image();
-        img.src = targets[i];
-        await new Promise(r => { img.onload = r; });
-        const ar = img.naturalHeight / img.naturalWidth;
-        const imgW = W - 20, imgH = Math.min(imgW * ar, H - 20);
-        pdf.addImage(targets[i], 'JPEG', 10, 10, imgW, imgH);
-      }
-      pdf.save(`scansync-${sessionId}.pdf`);
-      notify(`✅ PDF created with ${targets.length} page(s)`);
-    } catch (e) {
-      console.error(e);
-      notify('PDF creation failed. Check console.', '#dc2626');
-    }
-  };
-
   // ─── RENDER ─────────────────────────────────────────────────────
 
   return (
     <div style={S.page}>
-      {/* Notification toast */}
       {notification && (
-        <div style={{
-          position: 'fixed', top: 20, right: 20, zIndex: 9999,
-          background: notification.color, color: '#fff',
-          borderRadius: 10, padding: '12px 20px', fontSize: 14,
-          fontWeight: 600, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-          animation: 'fadeIn 0.2s'
-        }}>
+        <div style={{ ...S.notification, background: notification.color }}>
           {notification.msg}
         </div>
       )}
@@ -412,7 +359,6 @@ export default function Dashboard() {
       </nav>
 
       <main style={S.main}>
-        {/* No session – show create button */}
         {!sessionId && (
           <div style={{ ...S.card, textAlign: 'center', padding: '60px 40px' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📷</div>
@@ -428,7 +374,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Session active */}
         {sessionId && (
           <>
             {/* Session info + QR */}
@@ -474,6 +419,26 @@ export default function Dashboard() {
                   </p>
                 </div>
               </div>
+
+              {/* Receiving Progress */}
+              {isReceiving && images.length > 0 && (
+                <div style={S.progressBox}>
+                  <h3 style={{ ...S.h3, color: '#0ea5e9', marginTop: 0 }}>
+                    📥 Receiving images in real-time
+                  </h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>
+                      Received: {images.length} image{images.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div style={S.progressBar(100)}>
+                    <div style={{ height: '100%', background: '#10b981', width: '100%' }} />
+                  </div>
+                  <p style={{ marginTop: 10, fontSize: 12, color: '#0ea5e9', fontWeight: 600 }}>
+                    ✓ Images are being added as they arrive from mobile!
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Images section */}
@@ -499,12 +464,6 @@ export default function Dashboard() {
                     <button style={S.btn()} onClick={downloadAllZip}>
                       ⬇ {selected.size > 0 ? `Download ${selected.size}` : 'Download All'}
                     </button>
-                    <button style={S.btn('#7c3aed')} onClick={createPDF}>
-                      📄 Make PDF
-                    </button>
-                    <button style={S.btn('#059669')} onClick={runOCR} disabled={ocrLoading}>
-                      {ocrLoading ? '⏳ Running OCR…' : '🔤 Extract Text'}
-                    </button>
                     {selected.size > 0 && (
                       <button style={S.btn('#dc2626')} onClick={deleteSelected}>
                         🗑 Delete {selected.size}
@@ -524,6 +483,11 @@ export default function Dashboard() {
                   <p style={{ fontSize: 13, marginTop: 8, color: '#ccc' }}>
                     Scan the QR code and start capturing photos on your phone
                   </p>
+                  {isReceiving && (
+                    <p style={{ fontSize: 13, marginTop: 8, color: '#10b981', fontWeight: 600 }}>
+                      🟢 Mobile is connected and ready to send!
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div style={S.grid}>
@@ -574,27 +538,13 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-
-            {/* OCR Results */}
-            {ocrText && (
-              <div style={S.card}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                  <h2 style={{ ...S.h2, margin: 0 }}>🔤 Extracted Text</h2>
-                  <div style={S.row}>
-                    <button style={S.btn()} onClick={copyOCRText}>📋 Copy Text</button>
-                    <button style={S.btn('#059669')} onClick={downloadOCRText}>⬇ Save as .txt</button>
-                    <button style={S.btn('#64748b')} onClick={() => setOcrText('')}>✕ Clear</button>
-                  </div>
-                </div>
-                <div style={S.ocrBox}>{ocrText}</div>
-              </div>
-            )}
           </>
         )}
       </main>
 
       <style>{`
         @keyframes fadeIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes slideUp { from { transform:translateY(100px); opacity:0; } to { transform:translateY(0); opacity:1; } }
         button:hover { opacity: 0.88; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
