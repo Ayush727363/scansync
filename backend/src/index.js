@@ -20,6 +20,19 @@ const io = socketIo(server, {
   maxHttpBufferSize: 50 * 1024 * 1024 // 50MB for image transfers
 });
 
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3002',
+  process.env.PC_APP_URL,    // will be set in Render dashboard
+  process.env.MOBILE_APP_URL // will be set in Render dashboard
+].filter(Boolean);
+
+const io = socketIo(server, {
+  cors: { origin: ALLOWED_ORIGINS, methods: ['GET', 'POST'], credentials: true }
+});
+
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3002', FRONTEND_URL],
   credentials: true
@@ -49,7 +62,7 @@ app.post('/api/sessions/create', (req, res) => {
   res.json({
     success: true,
     sessionId,
-    mobileUrl: `http://localhost:3002?sessionId=${sessionId}`,
+    mobileUrl: `${process.env.MOBILE_APP_URL || 'http://localhost:3002'}?sessionId=${sessionId}`,
     expiresIn: SESSION_EXPIRY
   });
 });
