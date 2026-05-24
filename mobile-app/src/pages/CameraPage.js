@@ -4,6 +4,15 @@ import useSocket from '../hooks/useSocket';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
 
+// ─── COMPRESSION LEVELS ──────────────────────────────────────
+
+const COMPRESSION_LEVELS = {
+  original: { name: 'Full HD (Original)', scale: 1, quality: 1, videoQuality: 'high' },
+  hd: { name: 'HD (50% Compression)', scale: 0.9, quality: 0.85, videoQuality: 'medium' },
+  compressed: { name: 'Compressed (70% Compression)', scale: 0.7, quality: 0.7, videoQuality: 'medium' },
+  ultracompressed: { name: 'Ultra Compressed (85% Compression)', scale: 0.5, quality: 0.5, videoQuality: 'low' }
+};
+
 // ─── STYLES ──────────────────────────────────────────────────────
 
 const S = {
@@ -47,11 +56,25 @@ const S = {
   controls: {
     padding: '14px 16px',
     background: '#111',
-    borderTop: '1px solid #222'
+    borderTop: '1px solid #222',
+    maxHeight: '45vh',
+    overflowY: 'auto'
   },
+  compressionBox: {
+    background: '#1a1a1a', border: '1px solid #333',
+    borderRadius: 10, padding: 12, marginBottom: 12,
+    fontSize: 13
+  },
+  compressionLabel: { fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 8 },
+  compressionSelect: {
+    width: '100%', padding: 10, borderRadius: 8,
+    background: '#222', color: '#fff', border: '1px solid #333',
+    fontSize: 13, marginBottom: 6
+  },
+  compressionInfo: { fontSize: 11, color: '#666', fontStyle: 'italic' },
   captureRow: {
     display: 'flex', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: 12
+    justifyContent: 'space-between', marginBottom: 12, gap: 8
   },
   captureBtn: {
     width: 70, height: 70,
@@ -63,13 +86,13 @@ const S = {
     fontSize: 28, transition: 'transform 0.1s',
     flexShrink: 0
   },
-  sideBtn: (color = '#1e1e1e') => ({
-    background: color,
-    color: '#fff', border: 'none',
+  sideBtn: (color = '#1e1e1e', disabled = false) => ({
+    background: disabled ? '#333' : color,
+    color: disabled ? '#666' : '#fff', border: 'none',
     borderRadius: 12, padding: '10px 16px',
-    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
     display: 'flex', flexDirection: 'column',
-    alignItems: 'center', gap: 3
+    alignItems: 'center', gap: 3, opacity: disabled ? 0.5 : 1
   }),
   uploadBtn: (disabled) => ({
     width: '100%',
@@ -84,11 +107,11 @@ const S = {
   }),
   stackSection: {
     flex: 1, background: '#111',
-    padding: '0 16px 16px'
+    padding: '0 16px 16px', overflowY: 'auto'
   },
   stackHeader: {
     display: 'flex', alignItems: 'center',
-    justifyContent: 'space-between', padding: '12px 0 10px'
+    justifyContent: 'space-between', padding: '12px 0 10px', gap: 10
   },
   stackTitle: { fontSize: 14, fontWeight: 600, color: '#ccc' },
   grid3: {
@@ -96,36 +119,51 @@ const S = {
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: 8
   },
-  imgCard: (dragging) => ({
+  imgCard: {
     position: 'relative',
     borderRadius: 10,
     overflow: 'hidden',
     aspectRatio: '3/4',
     background: '#1a1a1a',
-    opacity: dragging ? 0.4 : 1,
-    transition: 'opacity 0.15s'
-  }),
+    border: '2px solid transparent',
+    cursor: 'grab',
+    transition: 'all 0.2s'
+  },
+  imgCardDragging: {
+    opacity: 0.5,
+    border: '2px dashed #2563eb'
+  },
   imgThumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  vidThumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#0a0a0a' },
   imgNum: {
     position: 'absolute', top: 5, left: 5,
     background: 'rgba(0,0,0,0.7)', color: '#fff',
     borderRadius: 6, fontSize: 11, fontWeight: 700,
     padding: '2px 6px'
   },
-  delBtn: {
+  mediaType: {
     position: 'absolute', top: 5, right: 5,
+    background: 'rgba(37,99,235,0.9)', color: '#fff',
+    borderRadius: 6, fontSize: 10, fontWeight: 700,
+    padding: '2px 6px'
+  },
+  delBtn: {
+    position: 'absolute', bottom: 5, right: 5,
     background: 'rgba(220,38,38,0.9)', color: '#fff',
     border: 'none', borderRadius: 6,
     width: 26, height: 26, fontSize: 14,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer'
   },
-  uploadIndicator: {
-    position: 'absolute', bottom: 0, right: 5,
-    background: '#059669', color: '#fff',
-    borderRadius: 6, fontSize: 11, fontWeight: 700,
-    padding: '2px 6px'
+  progressBox: {
+    background: '#1a1a1a', border: '1px solid #333',
+    borderRadius: 10, padding: 12, marginTop: 10,
+    fontSize: 13, color: '#aaa'
   },
+  progressFill: (pct) => ({
+    height: '100%', background: 'linear-gradient(90deg, #059669, #10b981)',
+    width: `${pct}%`, transition: 'width 0.3s'
+  }),
   errorPage: {
     minHeight: '100vh', background: '#0a0a0a', color: '#fff',
     display: 'flex', flexDirection: 'column',
@@ -137,46 +175,19 @@ const S = {
     display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center',
     padding: 32, textAlign: 'center', gap: 16
-  },
-  progressBox: {
-    background: '#1a1a1a', border: '1px solid #333',
-    borderRadius: 10, padding: 12, marginTop: 10,
-    fontSize: 13, color: '#aaa'
-  },
-  progressBar: {
-    width: '100%', height: 6, background: '#333',
-    borderRadius: 3, overflow: 'hidden', marginTop: 8
-  },
-  progressFill: (pct) => ({
-    height: '100%', background: 'linear-gradient(90deg, #059669, #10b981)',
-    width: `${pct}%`, transition: 'width 0.3s'
-  })
+  }
 };
 
 // ─── COMPRESS IMAGE ──────────────────────────────────────────
 
-function compressImage(base64Data, quality = 0.75) {
+function compressImage(base64Data, quality = 0.75, scale = 0.7) {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Data;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const maxWidth = 1024;
-      const maxHeight = 1024;
-      let width = img.width;
-      let height = img.height;
-
-      if (width > height) {
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-      } else {
-        if (height > maxHeight) {
-          width = Math.round((width * maxHeight) / height);
-          height = maxHeight;
-        }
-      }
+      let width = Math.round(img.width * scale);
+      let height = Math.round(img.height * scale);
 
       canvas.width = width;
       canvas.height = height;
@@ -186,17 +197,37 @@ function compressImage(base64Data, quality = 0.75) {
   });
 }
 
-// ─── COMPONENT ───────────────────────────────────────────────────
+// ─── COMPRESS VIDEO ──────────────────────────────────────────
+
+async function compressVideo(file, videoQuality = 'medium') {
+  // For now, we'll just return the file as-is
+  // Real video compression would require a library like FFmpeg.js
+  // This is a placeholder that returns the original file
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      resolve({
+        data: e.target.result,
+        type: 'video',
+        name: file.name
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ─── COMPONENT ───────────────────────────────────────────────
 
 export default function CameraPage() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const streamRef = useRef(null);
+  const dragOverRef = useRef(null);
 
   const [sessionId, setSessionId] = useState(null);
   const [sessionValid, setSessionValid] = useState(null);
-  const [images, setImages] = useState([]);
+  const [media, setMedia] = useState([]); // {data, id, type: 'image'|'video', name}
   const [cameraReady, setCameraReady] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
   const [uploading, setUploading] = useState(false);
@@ -204,10 +235,12 @@ export default function CameraPage() {
   const [dragIdx, setDragIdx] = useState(null);
   const [flash, setFlash] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
-  const [uploadedImages, setUploadedImages] = useState(new Set());
   const [cameraError, setCameraError] = useState(null);
+  const [compressionLevel, setCompressionLevel] = useState('compressed');
 
   const { connected, emit } = useSocket(sessionId);
+
+  const compressionSettings = COMPRESSION_LEVELS[compressionLevel];
 
   // Parse sessionId from URL
   useEffect(() => {
@@ -227,37 +260,47 @@ export default function CameraPage() {
       streamRef.current.getTracks().forEach(t => t.stop());
     }
     try {
-      // Request permission first
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints = {
         video: {
           facingMode: mode,
           width: { ideal: 1280, min: 640 },
           height: { ideal: 960, min: 480 }
         },
         audio: false
-      });
+      };
 
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video to actually load
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().then(() => {
-            setCameraReady(true);
-          }).catch(err => {
-            console.error('Play error:', err);
-            setCameraError('Camera failed to start. Try refreshing.');
-          });
+          videoRef.current.play()
+            .then(() => setCameraReady(true))
+            .catch(err => {
+              console.error('Play error:', err);
+              setCameraError('Camera failed to start. Try refreshing.');
+              setCameraReady(false);
+            });
         };
+
+        // Timeout if camera doesn't load
+        const timeout = setTimeout(() => {
+          if (!cameraReady) {
+            setCameraError('Camera took too long to load. Try refreshing.');
+          }
+        }, 5000);
+
+        return () => clearTimeout(timeout);
       }
     } catch (err) {
       console.error('Camera error:', err);
       if (err.name === 'NotAllowedError') {
-        setCameraError('📷 Camera access denied. Allow it in your browser settings.');
+        setCameraError('📷 Camera access denied. Check your browser settings and try refreshing.');
       } else if (err.name === 'NotFoundError') {
         setCameraError('📷 No camera found on this device.');
       } else if (err.name === 'NotReadableError') {
-        setCameraError('📷 Camera is being used by another app. Close it and try again.');
+        setCameraError('📷 Camera is being used by another app. Close it and refresh.');
       } else {
         setCameraError('📷 Camera error: ' + err.message);
       }
@@ -267,8 +310,7 @@ export default function CameraPage() {
 
   useEffect(() => {
     if (sessionValid === true) {
-      // Small delay to ensure everything is ready
-      const timer = setTimeout(() => startCamera(), 500);
+      const timer = setTimeout(() => startCamera(), 800);
       return () => clearTimeout(timer);
     }
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
@@ -294,11 +336,11 @@ export default function CameraPage() {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       canvas.getContext('2d').drawImage(video, 0, 0);
-      let data = canvas.toDataURL('image/jpeg', 0.9);
+      let data = canvas.toDataURL('image/jpeg', 0.95);
 
-      // Compress the image
-      data = await compressImage(data, 0.75);
-      setImages(prev => [...prev, { data, id: Date.now() }]);
+      // Compress based on selected level
+      data = await compressImage(data, compressionSettings.quality, compressionSettings.scale);
+      setMedia(prev => [...prev, { data, id: Date.now(), type: 'image', name: `photo-${Date.now()}.jpg` }]);
 
       // Flash effect
       setFlash(true);
@@ -309,78 +351,86 @@ export default function CameraPage() {
     }
   };
 
-  // Pick from gallery
-  const pickFromGallery = (e) => {
+  // Pick from gallery/files
+  const handleFileInput = (e) => {
     const files = Array.from(e.target.files);
     files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        let data = ev.target.result;
-        // Compress gallery images too
-        data = await compressImage(data, 0.75);
-        setImages(prev => [...prev, { data, id: Date.now() + Math.random() }]);
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          let data = ev.target.result;
+          // Compress image based on selected level
+          data = await compressImage(data, compressionSettings.quality, compressionSettings.scale);
+          setMedia(prev => [...prev, { data, id: Date.now() + Math.random(), type: 'image', name: file.name }]);
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('video/')) {
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const videoData = await compressVideo(file, compressionSettings.videoQuality);
+          setMedia(prev => [...prev, { ...videoData, id: Date.now() + Math.random() }]);
+        };
+        reader.readAsDataURL(file);
+      }
     });
     e.target.value = '';
   };
 
-  // Delete image
-  const deleteImg = (id) => {
-    setImages(prev => prev.filter(img => img.id !== id));
-    setUploadedImages(prev => {
-      const newSet = new Set(prev);
-      // Find index and remove from uploaded set
-      const idx = images.findIndex(img => img.id === id);
-      newSet.delete(idx);
-      return newSet;
-    });
+  // Delete media
+  const deleteMedia = (id) => {
+    setMedia(prev => prev.filter(m => m.id !== id));
   };
 
-  // Drag to reorder
-  const onDragStart = (i) => setDragIdx(i);
-  const onDragOver = (e, i) => {
+  // Drag and drop reorder - FIXED VERSION
+  const onDragStart = (e, idx) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragOver = (e) => {
     e.preventDefault();
-    if (dragIdx === null || dragIdx === i) return;
-    setImages(prev => {
-      const arr = [...prev];
-      const [moved] = arr.splice(dragIdx, 1);
-      arr.splice(i, 0, moved);
-      setDragIdx(i);
-      return arr;
-    });
+    e.dataTransfer.dropEffect = 'move';
   };
-  const onDragEnd = () => setDragIdx(null);
 
-  // Upload ONE image at a time with progress
-  const uploadImages = async () => {
-    if (!connected || images.length === 0) return;
+  const onDrop = (e, dropIdx) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === dropIdx) return;
+
+    setMedia(prev => {
+      const newMedia = [...prev];
+      const [draggedItem] = newMedia.splice(dragIdx, 1);
+      newMedia.splice(dropIdx, 0, draggedItem);
+      return newMedia;
+    });
+    setDragIdx(null);
+  };
+
+  const onDragEnd = () => {
+    setDragIdx(null);
+  };
+
+  // Upload ONE media at a time
+  const uploadMedia = async () => {
+    if (!connected || media.length === 0) return;
     setUploading(true);
-    setUploadProgress({ current: 0, total: images.length });
-    setUploadedImages(new Set());
+    setUploadProgress({ current: 0, total: media.length });
 
     try {
-      // Upload each image one by one
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
+      for (let i = 0; i < media.length; i++) {
+        const m = media[i];
 
-        // Emit to backend (one image at a time)
         emit('upload-images', {
           sessionId,
-          images: [img.data] // Send ONE image
+          images: [m.data],
+          mediaType: m.type // 'image' or 'video'
         });
 
-        // Mark as uploaded
-        setUploadedImages(prev => new Set([...prev, i]));
-        setUploadProgress({ current: i + 1, total: images.length });
-
-        // Wait a bit between uploads (so backend can process)
+        setUploadProgress({ current: i + 1, total: media.length });
         await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      // Success
       await new Promise(r => setTimeout(r, 500));
-      setImages([]);
+      setMedia([]);
       setUploadDone(true);
     } catch (err) {
       console.error('Upload error:', err);
@@ -390,15 +440,13 @@ export default function CameraPage() {
     }
   };
 
-  // Reset after upload
   const captureMore = () => {
-    setImages([]);
+    setMedia([]);
     setUploadDone(false);
-    setUploadedImages(new Set());
     setUploadProgress({ current: 0, total: 0 });
   };
 
-  // ─── RENDER STATES ──────────────────────────────────────────────
+  // ─── RENDER STATES ──────────────────────────────────────────
 
   if (sessionValid === null) {
     return (
@@ -417,9 +465,6 @@ export default function CameraPage() {
         <p style={{ color: '#888', fontSize: 15 }}>
           This session is expired or invalid.
         </p>
-        <p style={{ color: '#888', fontSize: 15 }}>
-          Please go back to your PC and create a new session, then scan the fresh QR code.
-        </p>
       </div>
     );
   }
@@ -430,9 +475,8 @@ export default function CameraPage() {
         <div style={{ fontSize: 60 }}>✅</div>
         <h2 style={{ fontSize: 24, fontWeight: 700 }}>Upload Complete!</h2>
         <p style={{ color: '#888', fontSize: 15 }}>
-          {images.length === 0 ? 'Images sent to your PC.' : `${images.length} image${images.length !== 1 ? 's' : ''} sent!`}
+          {media.length === 0 ? 'Media sent to your PC.' : `${media.length} item${media.length !== 1 ? 's' : ''} sent!`}
         </p>
-        <p style={{ color: '#888', fontSize: 14 }}>Check your PC dashboard now.</p>
         <button
           style={{ ...S.uploadBtn(false), marginTop: 20, maxWidth: 280 }}
           onClick={captureMore}
@@ -443,7 +487,7 @@ export default function CameraPage() {
     );
   }
 
-  // ─── MAIN CAMERA UI ─────────────────────────────────────────────
+  // ─── MAIN UI ────────────────────────────────────────────────
 
   return (
     <div style={S.page}>
@@ -454,9 +498,9 @@ export default function CameraPage() {
           <span style={S.badge(connected ? '#16a34a' : '#dc2626')}>
             {connected ? '● Live' : '○ Offline'}
           </span>
-          {images.length > 0 && (
+          {media.length > 0 && (
             <span style={S.badge('#2563eb')}>
-              {images.length} photo{images.length !== 1 ? 's' : ''}
+              {media.length} item{media.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -490,14 +534,14 @@ export default function CameraPage() {
                   style={{ ...S.sideBtn('#2563eb'), marginTop: 10 }}
                   onClick={() => startCamera()}
                 >
-                  🔄 Retry
+                  🔄 Retry Camera
                 </button>
               </>
             ) : (
               <>
-                <p style={{ fontSize: 14 }}>Loading camera…</p>
+                <p style={{ fontSize: 14 }}>Initializing camera…</p>
                 <p style={{ fontSize: 12, color: '#666' }}>
-                  Allow camera access if prompted
+                  If prompted, allow camera access
                 </p>
               </>
             )}
@@ -509,20 +553,38 @@ export default function CameraPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
-        onChange={pickFromGallery}
+        onChange={handleFileInput}
       />
 
-      {/* Capture controls */}
+      {/* Controls */}
       <div style={S.controls}>
+        {/* Compression Selector */}
+        <div style={S.compressionBox}>
+          <div style={S.compressionLabel}>📦 Quality Level</div>
+          <select
+            value={compressionLevel}
+            onChange={(e) => setCompressionLevel(e.target.value)}
+            style={S.compressionSelect}
+          >
+            {Object.entries(COMPRESSION_LEVELS).map(([key, val]) => (
+              <option key={key} value={key}>{val.name}</option>
+            ))}
+          </select>
+          <div style={S.compressionInfo}>
+            {compressionSettings.name}
+          </div>
+        </div>
+
+        {/* Capture buttons */}
         <div style={S.captureRow}>
           <button
             style={S.sideBtn()}
             onClick={() => fileInputRef.current?.click()}
           >
             <span style={{ fontSize: 22 }}>🖼</span>
-            <span style={{ fontSize: 11 }}>Gallery</span>
+            <span style={{ fontSize: 11 }}>Media</span>
           </button>
 
           <button
@@ -537,7 +599,7 @@ export default function CameraPage() {
           </button>
 
           <button 
-            style={S.sideBtn(cameraReady ? undefined : '#333')} 
+            style={S.sideBtn(undefined, !cameraReady)} 
             onClick={flipCamera}
             disabled={!cameraReady}
           >
@@ -546,17 +608,17 @@ export default function CameraPage() {
           </button>
         </div>
 
-        {/* Upload button with progress */}
+        {/* Upload button */}
         <button
-          style={S.uploadBtn(images.length === 0 || !connected || uploading)}
-          disabled={images.length === 0 || !connected || uploading}
-          onClick={uploadImages}
+          style={S.uploadBtn(media.length === 0 || !connected || uploading)}
+          disabled={media.length === 0 || !connected || uploading}
+          onClick={uploadMedia}
         >
           {uploading
             ? `⏳ Uploading ${uploadProgress.current}/${uploadProgress.total}...`
-            : images.length === 0
-              ? '📷 Take some photos first'
-              : `⬆ Upload ${images.length} Photo${images.length !== 1 ? 's' : ''} to PC`
+            : media.length === 0
+              ? '📷 Take photos/videos first'
+              : `⬆ Upload ${media.length} Item${media.length !== 1 ? 's' : ''} to PC`
           }
         </button>
 
@@ -566,45 +628,55 @@ export default function CameraPage() {
               <span>Uploading {uploadProgress.current} of {uploadProgress.total}</span>
               <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
             </div>
-            <div style={S.progressBar}>
+            <div style={{ height: 6, borderRadius: 3, background: '#333', overflow: 'hidden' }}>
               <div style={S.progressFill((uploadProgress.current / uploadProgress.total) * 100)} />
             </div>
             <p style={{ marginTop: 8, fontSize: 12, color: '#16a34a' }}>
-              ⏱ Waiting for {uploadProgress.total - uploadProgress.current} more image{uploadProgress.total - uploadProgress.current !== 1 ? 's' : ''}…
+              ⏱ Waiting for {uploadProgress.total - uploadProgress.current} more…
             </p>
           </div>
         )}
       </div>
 
-      {/* Image stack */}
-      {images.length > 0 && (
+      {/* Media stack */}
+      {media.length > 0 && (
         <div style={S.stackSection}>
           <div style={S.stackHeader}>
             <span style={S.stackTitle}>
-              Captured ({images.length}) — drag to reorder
+              Captured ({media.length}) — drag to reorder
             </span>
             <button
               style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}
-              onClick={() => { if (window.confirm('Clear all?')) { setImages([]); setUploadedImages(new Set()); } }}
+              onClick={() => { if (window.confirm('Clear all?')) { setMedia([]); } }}
             >
-              Clear all
+              Clear
             </button>
           </div>
 
           <div style={S.grid3}>
-            {images.map((img, i) => (
+            {media.map((item, i) => (
               <div
-                key={img.id}
-                style={S.imgCard(dragIdx === i)}
+                key={item.id}
+                style={{
+                  ...S.imgCard,
+                  ...(dragIdx === i ? S.imgCardDragging : {})
+                }}
                 draggable
-                onDragStart={() => onDragStart(i)}
-                onDragOver={e => onDragOver(e, i)}
+                onDragStart={(e) => onDragStart(e, i)}
+                onDragOver={onDragOver}
+                onDrop={(e) => onDrop(e, i)}
                 onDragEnd={onDragEnd}
               >
-                <img src={img.data} alt={`${i + 1}`} style={S.imgThumb} />
+                {item.type === 'video' ? (
+                  <div style={{...S.vidThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30}}>
+                    🎥
+                  </div>
+                ) : (
+                  <img src={item.data} alt={`${i + 1}`} style={S.imgThumb} />
+                )}
                 <div style={S.imgNum}>{i + 1}</div>
-                {uploadedImages.has(i) && <div style={S.uploadIndicator}>✓ Sent</div>}
-                <button style={S.delBtn} onClick={() => deleteImg(img.id)}>✕</button>
+                <div style={S.mediaType}>{item.type === 'video' ? '🎥' : '📸'}</div>
+                <button style={S.delBtn} onClick={() => deleteMedia(item.id)}>✕</button>
               </div>
             ))}
           </div>
