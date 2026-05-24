@@ -1,4 +1,4 @@
 document.getElementById('openApp').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'https://scansync-pc.vercel.app' });
+  chrome.tabs.create({ url: 'https://scansync-theta.vercel.app' });
   window.close();
 });
