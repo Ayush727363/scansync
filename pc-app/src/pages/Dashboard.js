@@ -546,7 +546,7 @@ export default function Dashboard() {
         @keyframes fadeIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
         @keyframes slideUp { from { transform:translateY(100px); opacity:0; } to { transform:translateY(0); opacity:1; } }
         button:hover { opacity: 0.88; }
-        button:disabled { opacity: 0.5; cursor: not-alloweded; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
     </div>
   );
